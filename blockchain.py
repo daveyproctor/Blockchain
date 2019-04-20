@@ -41,6 +41,76 @@ class Network():
         # self.lock = threading.Lock()
 
     '''
+    generate
+    
+    generate (mine) just one new block
+
+    concurrent with new blocks coming in; 
+    doesn't hold a grudge if lost lottery this go-round
+    
+    input: steps to run hashing process before polling new block
+    this parameter could be fine-tuned for max profit by individual based on
+    how fast his computer is vs. number of peers
+
+    side effect: add block to chain (even after others beat me to it);
+    trigger broadcast
+
+    output: None
+    '''
+    def generate(self, numSteps=100):
+        # Create new block and broadcast
+        newBlock = None
+        if len(self.chain) == 0:
+            newBlock = self.genesis()
+            
+        while newBlock is None:
+            with networkLock:
+                parentBlock = self.chain[-1]
+                index = len(self.chain)
+            data = "Data for block {}".format(index)
+            newBlock = Block(index, parentBlock.hash, data)
+            for startSearch in range(0, newBlock.max_nonce, numSteps):
+                block_hash = newBlock.search_hash(self.difficulty, startSearch, numSteps)
+                if index != len(self.chain):
+                    # new block has arrived, start from tip of trunk again
+                    # Even if we just found one, we'll yield
+                    print("Restart mining cycle due to received block")
+                    newBlock = None
+                    break
+                elif block_hash is not None:
+                    # Found block
+                    # Would like to pick up a communication lock here; 
+                    # obviously that's impossible for internet latency
+                    # and incentive reasons, so forks are possible even
+                    # among cooperative parties due to this race condition.
+                    break
+                elif block_hash is None:
+                    continue
+
+        if self.add_block(newBlock) == False:
+            raise RuntimeError("Networked race condition or weirdness in mining process")
+        broadcast(newBlock)
+        return
+        # print("Failed after %d (max_nonce) tries" % nonce)
+    
+    '''
+    genesis
+    
+    generate (mine) the genesis block
+    input: None
+    side effect: add block 
+
+    
+    returns Block
+    '''
+    def genesis(self):
+        genesis = Block( 0, '0', 'Genesis Block' )
+        if genesis.search_hash( self.difficulty ) is None:
+            raise RuntimeError("Failed chain genesis")
+    
+        return genesis
+
+    '''
     add_block
 
     add a block to the chain
@@ -212,6 +282,8 @@ class Block():
 
         self.hashed      = False
 
+        self.max_nonce = 2 ** 32 # 4 billion
+
 
     '''
     hash
@@ -222,7 +294,7 @@ class Block():
 
     returns String
     '''
-    def hash( self, difficulty, startSearch=0, steps=None):
+    def search_hash( self, difficulty, startSearch=0, steps=None):
         # Implements hashing of block until difficulty is exceeded.
         # Use the SHA256 hash function (from hashlib library).
         # The hash should be over the index, hash of parent, a unix epoch timestamp in elapsed seconds (time.time()), a random nonce (from secrets library) and the data.
@@ -240,9 +312,10 @@ class Block():
 
         # calculate the difficulty target
         target = 2 ** (256-difficulty)
-        max_nonce = 2 ** 32 # 4 billion
         if steps is not None:
-            max_nonce = min(max_nonce, startSearch + steps)
+            max_nonce = min(self.max_nonce, startSearch + steps)
+        else:
+            max_nonce = self.max_nonce
 
         header = str(self.index) + str(self.parent_hash) + str(self.data)
 
@@ -257,7 +330,6 @@ class Block():
                 self.hashed = True
                 return self.hash 
 
-        print("Failed after %d (max_nonce) tries" % nonce)
         return None
 
     '''
@@ -291,57 +363,6 @@ class Block():
     def __str__( self ):
         return self.hash
 
-
-'''
-generate
-
-generate (mine) just one new block
-
-TODO: Determine input(s) and output(s).
-'''
-def generate(numSteps = 100, max_nonce = 2 ** 32):
-    # Create new block and broadcast
-    if len(network.chain) == 0:
-        genesis()
-        broadcast()
-        return
-    while 1:
-        with networkLock:
-            parentBlock = network.chain[-1]
-            index = len(network.chain)
-        data = "Data for block {}".format(index)
-        block = Block(index, parent_hash, data)
-        for startSearch in range(0, max_nonce, numSteps):
-            block_hash = block.hash()
-            if index != len(network.chain):
-                # new block has arrived, start from tip of trunk again
-                # Even if we just found one, we'll yield
-                break
-            elif block_hash is not None:
-                # Found block
-                # Would like to pick up a communication lock here; 
-                # obviously that's impossible for internet latency and incentive reasons, so forks are possible even among cooperative parties due to this race condition.
-                if network.add_block(block) == False:
-                    raise RuntimeError("Networked race condition or weirdness in mining process")
-                broadcast()
-                return
-
-'''
-genesis
-
-generate (mine) the genesis block
-
-returns None
-'''
-def genesis():
-    genesis = Block( 0, '0', 'Genesis Block' )
-    if genesis.hash( network.difficulty ) is None:
-        raise RuntimeError("Failed chain genesis")
-
-    if network.add_block(genesis) == False:
-        raise RuntimeError("Networked race condition or weirdness in genesis mining process")
-
-    return None
 
 
 '''
