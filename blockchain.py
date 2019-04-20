@@ -161,7 +161,7 @@ class Network():
 
     deserialize the chain from the wire and store
 
-    returns None
+    returns Network object
     '''
     def deserialize( chain_repr ):
         return pickle.loads(chain_repr)
@@ -216,26 +216,21 @@ class Block():
     '''
     hash
 
-    mine a (valid) hash for the block
+    (Try to) mine a (valid) hash for the block
 
     - { int } difficulty - the difficulty to be met, from the network
 
     returns String
     '''
-    def hash( self, difficulty ):
-        # TODO: Implement hashing of block until difficulty is exceeded.
-        #       Use the SHA256 hash function (from hashlib library).
-        #       The hash should be over the index, hash of parent, a unix epoch timestamp in elapsed seconds (time.time()), a random nonce (from secrets library) and the data.
-        #       We will refer to all of these contents except the data as a "header".
-        #       It is recommended that you store and use the hex representation of the hash, from hash.hexdigest().
+    def hash( self, difficulty, startSearch=0, steps=None):
+        # Implements hashing of block until difficulty is exceeded.
+        # Use the SHA256 hash function (from hashlib library).
+        # The hash should be over the index, hash of parent, a unix epoch timestamp in elapsed seconds (time.time()), a random nonce (from secrets library) and the data.
+        # We will refer to all of these contents except the data as a "header".
+        # We store and use the hex representation of the hash, from hash.hexdigest().
         #
-        # HINTS
-        #
-        #       "[U]ntil difficulty is exceeded" means at least the specified number of leading zeros are present in the
-        #       hash as the "proof of work." You'll have to keep hashing with different nonces till you get one that works.
-        #
-        #       You may query the random nonce once and increment it each try.
-        # hashlib.sha256()
+        # "[U]ntil difficulty is exceeded" means at least the specified number of leading zeros are present in the hash as the "proof of work." 
+        # We keep hashing with different nonces till you get one that works.
 
         self.timestamp = time.time()
         self.nonce     = '{ some nonce }'
@@ -246,10 +241,12 @@ class Block():
         # calculate the difficulty target
         target = 2 ** (256-difficulty)
         max_nonce = 2 ** 32 # 4 billion
+        if steps is not None:
+            max_nonce = min(max_nonce, startSearch + steps)
 
         header = str(self.index) + str(self.parent_hash) + str(self.data)
 
-        for nonce in range(max_nonce):
+        for nonce in range(startSearch, max_nonce):
             self.timestamp = time.time()
             hash_result = hashlib.sha256((str(header)+str(self.timestamp)+str(nonce)).encode()).hexdigest()
 
@@ -263,6 +260,26 @@ class Block():
         print("Failed after %d (max_nonce) tries" % nonce)
         return None
 
+    '''
+    serialize
+
+    serialize the block into a format for sharing over the wire
+
+    returns String or Bytes
+    '''
+    def serialize( self ):
+        return pickle.dumps(self)
+
+
+    '''
+    deserialize
+
+    deserialize the block from the wire and store
+
+    returns Block object
+    '''
+    def deserialize( block_repr ):
+        return pickle.loads(block_repr)
 
     '''
     __str__
@@ -278,14 +295,36 @@ class Block():
 '''
 generate
 
-generate (mine) a new block
+generate (mine) just one new block
 
 TODO: Determine input(s) and output(s).
 '''
-def generate():
-    # TODO: Create new block.
-    pass
-
+def generate(numSteps = 100, max_nonce = 2 ** 32):
+    # Create new block and broadcast
+    if len(network.chain) == 0:
+        genesis()
+        broadcast()
+        return
+    while 1:
+        with networkLock:
+            parentBlock = network.chain[-1]
+            index = len(network.chain)
+        data = "Data for block {}".format(index)
+        block = Block(index, parent_hash, data)
+        for startSearch in range(0, max_nonce, numSteps):
+            block_hash = block.hash()
+            if index != len(network.chain):
+                # new block has arrived, start from tip of trunk again
+                # Even if we just found one, we'll yield
+                break
+            elif block_hash is not None:
+                # Found block
+                # Would like to pick up a communication lock here; 
+                # obviously that's impossible for internet latency and incentive reasons, so forks are possible even among cooperative parties due to this race condition.
+                if network.add_block(block) == False:
+                    raise RuntimeError("Networked race condition or weirdness in mining process")
+                broadcast()
+                return
 
 '''
 genesis
@@ -296,9 +335,11 @@ returns None
 '''
 def genesis():
     genesis = Block( 0, '0', 'Genesis Block' )
-    genesis.hash( network.difficulty )
+    if genesis.hash( network.difficulty ) is None:
+        raise RuntimeError("Failed chain genesis")
 
-    network.add_block( genesis )
+    if network.add_block(genesis) == False:
+        raise RuntimeError("Networked race condition or weirdness in genesis mining process")
 
     return None
 
@@ -308,12 +349,40 @@ broadcast
 
 broadcast mined block to network
 
-TODO: Determine input(s) and output(s).
+input: block
+output: none
 '''
-def broadcast():
-    # TODO: Broadcast newly generated block to all other nodes in the directory.
-    pass
+def broadcast(block):
+    # Broadcasts newly generated block to all other nodes in the directory.
+    for socket in network.socket_list:
+        socket.send(block.serialize())
+        continue
 
+        # TODO: handle exception
+        try :
+            print(message)
+            socket.send(message.encode())
+        except Exception as e:
+            # broken socket connection
+            socket.close()
+            # broken socket, remove it
+            if socket in SOCKET_LIST:
+                SOCKET_LIST.remove(socket)
+            raise(e)
+
+'''
+listen_broadcast
+
+listen for broadcasts of new blocks
+
+input: None
+output: None
+side effect: adds new block to chain if valid
+'''
+def listen_broadcast():
+    # TODO: Handle newly broadcast prospective block (i.e. add to chain if valid).
+    #       If using HTTP, this should be a route handler.
+    pass
 
 '''
 query_chain
@@ -325,20 +394,6 @@ TODO: Determine input(s) and output(s).
 def query_chain():
     # TODO: Request content of chain from all other nodes (using deserialize class method). Keep the majority/plurality (valid) chain.
     pass
-
-
-'''
-listen_broadcast
-
-listen for broadcasts of new blocks
-
-TODO: Determine input(s) and output(s).
-'''
-def listen_broadcast():
-    # TODO: Handle newly broadcast prospective block (i.e. add to chain if valid).
-    #       If using HTTP, this should be a route handler.
-    pass
-
 
 '''
 listen_query
@@ -426,8 +481,6 @@ if __name__ == '__main__':
 
     # # Give everyone time to come online
     time.sleep(10)
-    assert(len(network.socket_list) == len(allNodes) - 1)
-    print("Assertion passed")
 
 
 
