@@ -433,40 +433,39 @@ class DistributedBlockchain(Blockchain):
         #       If using HTTP, this should be a route handler.
         pass
 
-def serverDispatch(bchain, server_socket):
-    while 1:
-        # Blocks in an efficient way even after all connections made
-        ready_to_read,ready_to_write,in_error = select.select([server_socket],[],[])
-        if server_socket in ready_to_read:
-            # a new connection request recieved
-            s, addr = server_socket.accept()
-            bchain.add_client_socket(s)
-            print("Client (%s, %s) connected" % addr)
-        else:
-            print("Odd behavior in server")
-      
-def clientTryConnect(bchain, servers):
-    printedSet = set()
-    while len(servers) > 0:
-        for peer in servers:
-            # I'll be the client
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(2)
-            try:
-                s.connect((HOST, bchain.get_node_port(peer)))
-                bchain.add_client_socket(s)
-                
-                print("Connected to {}".format(peer))
-                bchain.add_node("localhost", bchain.get_node_port(peer))
-                servers.remove(peer)
-                break
-            except ConnectionRefusedError:
-                if peer not in printedSet:
-                    print('{} is not online'.format(peer))
-                printedSet.add(peer)
-                time.sleep(1)
-
-    print("All client-outreach connections made")
+    def serverDispatch(self, server_socket):
+        while 1:
+            # Blocks in an efficient way even after all connections made
+            ready_to_read,ready_to_write,in_error = select.select([server_socket],[],[])
+            if server_socket in ready_to_read:
+                # a new connection request recieved
+                s, addr = server_socket.accept()
+                self.add_client_socket(s)
+                print("Client (%s, %s) connected" % addr)
+            else:
+                print("Odd behavior in server")
+          
+    def clientTryConnect(self, servers):
+        printedSet = set()
+        while len(servers) > 0:
+            for peer in servers:
+                # I'll be the client
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(2)
+                try:
+                    s.connect((HOST, bchain.get_node_port(peer)))
+                    bchain.add_client_socket(s)
+                    
+                    print("Connected to {}".format(peer))
+                    self.add_node("localhost", self.get_node_port(peer))
+                    servers.remove(peer)
+                    break
+                except ConnectionRefusedError:
+                    if peer not in printedSet:
+                        print('{} is not online'.format(peer))
+                    printedSet.add(peer)
+                    time.sleep(1)
+        print("All client-outreach connections made")
 
 HOST = 'localhost'
 RECV_BUFFER = 4096 
@@ -492,12 +491,12 @@ if __name__ == '__main__':
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind((HOST, bchain.get_node_port(whoami)))
     server_socket.listen(5)
-    x = threading.Thread(target=serverDispatch, args=(bchain, server_socket))
+    x = threading.Thread(target=bchain.serverDispatch, args=(server_socket,))
     x.start()
 
     # Try connect to peers
     servers = set(peer1 for peer1, peer2 in itertools.combinations(allNodes, 2) if peer2==whoami)
-    y = threading.Thread(target=clientTryConnect, args=(bchain, servers))
+    y = threading.Thread(target=bchain.clientTryConnect, args=(servers,))
     y.start()
 
 
