@@ -433,7 +433,11 @@ class DistributedBlockchain(Blockchain):
         #       If using HTTP, this should be a route handler.
         pass
 
-    def serverDispatch(self, server_socket):
+    def serverDispatch(self):
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_socket.bind((HOST, bchain.get_node_port(self.whoami)))
+        server_socket.listen(5)
         while 1:
             # Blocks in an efficient way even after all connections made
             ready_to_read,ready_to_write,in_error = select.select([server_socket],[],[])
@@ -445,7 +449,9 @@ class DistributedBlockchain(Blockchain):
             else:
                 print("Odd behavior in server")
           
-    def clientTryConnect(self, servers):
+    def clientTryConnect(self):
+        # protocol for who's serving me in the initial connection
+        servers = set(peer1 for peer1, peer2 in itertools.combinations(allNodes, 2) if peer2==self.whoami)
         printedSet = set()
         while len(servers) > 0:
             for peer in servers:
@@ -470,7 +476,6 @@ class DistributedBlockchain(Blockchain):
 HOST = 'localhost'
 RECV_BUFFER = 4096 
 PORT_MIN = 8000
-
 allNodes = ("generator", "honest", "dishonest", "joiner")
 
 if __name__ == '__main__':
@@ -478,27 +483,21 @@ if __name__ == '__main__':
     if (len(sys.argv) != 2):
         print('Usage : python blockchain.py [{}]'.format(" | ".join(allNodes)))
         sys.exit()
-    whoami = sys.argv[1]
 
     bchain = DistributedBlockchain( difficulty=18 )
+    bchain.whoami = sys.argv[1]
 
     # track who's serving over which ports
     for i, node in enumerate(allNodes):
         bchain.set_node_port(node, PORT_MIN+i)
 
     # start server per node
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_socket.bind((HOST, bchain.get_node_port(whoami)))
-    server_socket.listen(5)
-    x = threading.Thread(target=bchain.serverDispatch, args=(server_socket,))
+    x = threading.Thread(target=bchain.serverDispatch)
     x.start()
 
     # Try connect to peers
-    servers = set(peer1 for peer1, peer2 in itertools.combinations(allNodes, 2) if peer2==whoami)
-    y = threading.Thread(target=bchain.clientTryConnect, args=(servers,))
+    y = threading.Thread(target=bchain.clientTryConnect)
     y.start()
-
 
     # # Give everyone time to come online
     time.sleep(10)
