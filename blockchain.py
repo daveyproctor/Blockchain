@@ -405,7 +405,7 @@ class DistributedBlockchain(Blockchain):
     output: None
     side effect: adds new block to chain if valid
     '''
-    def listen_broadcast():
+    def listen_broadcast(self):
         # TODO: Handle newly broadcast prospective block (i.e. add to chain if valid).
         #       If using HTTP, this should be a route handler.
         pass
@@ -417,7 +417,7 @@ class DistributedBlockchain(Blockchain):
     
     TODO: Determine input(s) and output(s).
     '''
-    def query_chain():
+    def query_chain(self):
         # TODO: Request content of chain from all other nodes (using deserialize class method). Keep the majority/plurality (valid) chain.
         pass
     
@@ -428,10 +428,18 @@ class DistributedBlockchain(Blockchain):
     
     TODO: Determine input(s) and output(s).
     '''
-    def listen_query():
+    def listen_query(self):
         # TODO: Respond to query for contents of full chain (using serialize class method).
         #       If using HTTP, this should be a route handler.
-        pass
+        while 1:
+            ready_to_read,ready_to_write,in_error = select.select([],self.socket_list,[])
+            for sock in read_sockets:            
+                data = sock.recv(RECV_BUFFER).decode()
+                if not data :
+                    print('Disconnected from chat server')
+                    sys.exit()
+                else :
+                    print("data:", data)
 
     def serverDispatch(self):
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -439,7 +447,7 @@ class DistributedBlockchain(Blockchain):
         server_socket.bind((HOST, bchain.get_node_port(self.whoami)))
         server_socket.listen(5)
         while 1:
-            # Blocks in an efficient way even after all connections made
+            # This blocks (hangs) in an efficient way even after all connections made
             ready_to_read,ready_to_write,in_error = select.select([server_socket],[],[])
             if server_socket in ready_to_read:
                 # a new connection request recieved
