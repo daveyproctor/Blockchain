@@ -7,6 +7,9 @@ import itertools
 import sys, socket, select
 import threading
 
+import logging
+logging.basicConfig(filename='bchain.log',level=logging.DEBUG)
+
 
 
 '''
@@ -188,7 +191,6 @@ class Blockchain(object):
 
         #   1.,4.,5. Parent-child relationship
         if block.timestamp < parent.timestamp:
-            print("Validate fail test 1")
             return False
         if parent.index + 1 != block.index:
             return False
@@ -234,8 +236,9 @@ DistributedBlockchain
 '''
 class DistributedBlockchain(Blockchain):
 
-    def __init__(self, difficulty):
+    def __init__(self, difficulty, whoami):
         Blockchain.__init__(self, difficulty)
+        self.whoami = whoami
         self.directory = [
             { 'ip' : None, 'port' : None }
         ]
@@ -300,7 +303,7 @@ class DistributedBlockchain(Blockchain):
                 if index != len(self.chain):
                     # new block has arrived, start from tip of trunk again
                     # Even if we just found one, we'll yield
-                    print("Restart mining cycle due to received block")
+                    logging.info("{}: Restart mining cycle due to received block".format(self.whoami))
                     newBlock = None
                     break
                 elif block_hash is not None:
@@ -314,7 +317,8 @@ class DistributedBlockchain(Blockchain):
                     continue
 
         if self.add_block(newBlock) == False:
-            raise RuntimeError("Networked race condition or weirdness in mining process")
+            logging.error("{}: Networked race condition or weirdness in mining process".format(self.whoami))
+            return None
         return newBlock
     
     '''
@@ -329,10 +333,12 @@ class DistributedBlockchain(Blockchain):
     def _genesis(self):
         genesis = Block( 0, '0', 'Genesis Block' )
         if genesis.search_hash( self.difficulty ) is None:
-            raise RuntimeError("Failed chain genesis")
+            logging.error("{}: Failed chain genesis".format(self.whoami))
+            return None
     
         if self.add_block(genesis) == False:
-            raise RuntimeError("Networked race condition or weirdness in mining process")
+            logging.error("{}: Networked race condition or weirdness in mining process".format(self.whoami))
+            return None
         return genesis
 
     '''
@@ -378,8 +384,18 @@ class DistributedBlockchain(Blockchain):
     input: block
     output: none
     '''
-    def broadcast(self, block):
+    def broadcast_block(self, block):
         # Broadcasts newly generated block to all other nodes in the directory.
+        with self.data_out_lock:
+            self.data_out_completed = False
+            my_data = block.serialize()
+            self.data_out = my_data
+            while self.data_out == my_data:
+                time.sleep(.1)
+        return
+
+
+
         for socket in self.socket_list:
             socket.send(block.serialize())
             continue
@@ -395,6 +411,43 @@ class DistributedBlockchain(Blockchain):
                 if socket in SOCKET_LIST:
                     SOCKET_LIST.remove(socket)
                 raise(e)
+
+    def broadcast(self, data):
+        """
+        Waits for data_out to be queued by other thread
+        Goal is then to have other nodes on the network know about it.
+        Resets data_out to None when done.
+        """
+        while 1:
+            while self.data_out == None:
+                time.sleep(.1)
+            send_to_sockets = set(self.socket_list)
+            while len(send_to_sockets) > 0:
+                ready_to_read,ready_to_write,in_error = select.select([],list(send_to_sockets),[])
+                for sock in ready_to_write:
+                    socket.send(block.serialize())
+
+    def listen(self):
+        """
+        Entire point in life is to get whatever data is to be read 
+        into the data_in field.
+        Then, waits (polling) for other threads to deal with it and
+        reset data_in to None, at which point we can read again.
+        """
+        while 1:
+            while self.data_in != None:
+                time.sleep(.1)
+            send_to_sockets = set(self.socket_list)
+            while len(send_to_sockets) > 0:
+                ready_to_read,ready_to_write,in_error = select.select([],list(send_to_sockets),[])
+                for sock in ready_to_read:
+                    data = sock.recv(RECV_BUFFER).decode()
+                    if not data :
+                        logging.info('{}: Disconnected from server'.format(self.whoami))
+                    else :
+                        logging.info('{}: Received data: {}'.format(self.whoami, data))
+                        send_to_sockets.remove(sock)
+
     
     '''
     listen_broadcast
@@ -431,15 +484,6 @@ class DistributedBlockchain(Blockchain):
     def listen_query(self):
         # TODO: Respond to query for contents of full chain (using serialize class method).
         #       If using HTTP, this should be a route handler.
-        while 1:
-            ready_to_read,ready_to_write,in_error = select.select([],self.socket_list,[])
-            for sock in read_sockets:            
-                data = sock.recv(RECV_BUFFER).decode()
-                if not data :
-                    print('Disconnected from chat server')
-                    sys.exit()
-                else :
-                    print("data:", data)
 
     def serverDispatch(self):
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -453,9 +497,9 @@ class DistributedBlockchain(Blockchain):
                 # a new connection request recieved
                 s, addr = server_socket.accept()
                 self.add_client_socket(s)
-                print("Client (%s, %s) connected" % addr)
+                logging.info("{}: Client ({}, {}) connected".format(self.whoami, addr[0], addr[1]))
             else:
-                print("Odd behavior in server")
+                logging.error("{}: Failed would-be initial connection".format(self.whoami))
           
     def clientTryConnect(self):
         # protocol for who's serving me in the initial connection
@@ -470,16 +514,16 @@ class DistributedBlockchain(Blockchain):
                     s.connect((HOST, bchain.get_node_port(peer)))
                     bchain.add_client_socket(s)
                     
-                    print("Connected to {}".format(peer))
+                    logging.info("{}: Connected to {}".format(self.whoami, peer))
                     self.add_node("localhost", self.get_node_port(peer))
                     servers.remove(peer)
                     break
                 except ConnectionRefusedError:
                     if peer not in printedSet:
-                        print('{} is not online'.format(peer))
-                    printedSet.add(peer)
+                        logging.info('{}: {} is not online'.format(self.whoami, peer))
+                        printedSet.add(peer)
                     time.sleep(1)
-        print("All client-outreach connections made")
+        logging.info("{}: All client-outreach connections made".format(self.whoami))
 
 HOST = 'localhost'
 RECV_BUFFER = 4096 
@@ -492,8 +536,7 @@ if __name__ == '__main__':
         print('Usage : python blockchain.py [{}]'.format(" | ".join(allNodes)))
         sys.exit()
 
-    bchain = DistributedBlockchain( difficulty=18 )
-    bchain.whoami = sys.argv[1]
+    bchain = DistributedBlockchain( difficulty=18, whoami=sys.argv[1] )
 
     # track who's serving over which ports
     for i, node in enumerate(allNodes):
@@ -508,7 +551,7 @@ if __name__ == '__main__':
     y.start()
 
     # # Give everyone time to come online
-    time.sleep(10)
+    # time.sleep(10)
 
 
 
