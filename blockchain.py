@@ -8,7 +8,7 @@ import sys, socket, select
 import threading
 
 import logging
-logging.basicConfig(filename='bchain.log',level=logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG)
 
 
 
@@ -237,16 +237,24 @@ DistributedBlockchain
 class DistributedBlockchain(Blockchain):
 
     def __init__(self, difficulty, whoami):
+        # Inherited class
         Blockchain.__init__(self, difficulty)
+
+        # If true, don't supress exceptions
+        self.DEBUG = True
+
+        # Network information
         self.whoami = whoami
         self.directory = [
             { 'ip' : None, 'port' : None }
         ]
         # communcation list. Don't need to know metadata per socket because
         # all peer nodes are symmetric
-        self.socket_list = []
+        self.sockets = set()
         # track who's serving over which ports
         self.ports = {}
+
+        # Concurrency
         self.lock = threading.Lock()
 
     '''
@@ -319,6 +327,7 @@ class DistributedBlockchain(Blockchain):
         if self.add_block(newBlock) == False:
             logging.error("{}: Networked race condition or weirdness in mining process".format(self.whoami))
             return None
+        logging.info("{}: Generated block".format(self.whoami))
         return newBlock
     
     '''
@@ -339,19 +348,20 @@ class DistributedBlockchain(Blockchain):
         if self.add_block(genesis) == False:
             logging.error("{}: Networked race condition or weirdness in mining process".format(self.whoami))
             return None
+        logging.info("{}: Genesis block".format(self.whoami))
         return genesis
 
     '''
     _generate and also broadcast
     '''
-    def generate():
-        self.broadcast(self._generate())
+    def generate(self):
+        self.broadcast_block(self._generate())
 
     '''
     _genesis and also broadcast
     '''
-    def genesis():
-        self.broadcast(self._genesis())
+    def genesis(self):
+        self.broadcast_block(self._genesis())
 
     '''
     add_node
@@ -366,7 +376,11 @@ class DistributedBlockchain(Blockchain):
 
     def add_client_socket(self, socket):
         with self.lock:
-            self.socket_list.append(socket)
+            self.sockets.add(socket)
+
+    def remove_client_socket(self, socket):
+        with self.lock:
+            self.sockets.remove(socket)
 
     def set_node_port(self, node, port):
         with self.lock:
@@ -377,7 +391,7 @@ class DistributedBlockchain(Blockchain):
             return self.ports[node]
 
     '''
-    broadcast
+    broadcast_block
     
     broadcast mined block to network
     
@@ -385,105 +399,89 @@ class DistributedBlockchain(Blockchain):
     output: none
     '''
     def broadcast_block(self, block):
-        # Broadcasts newly generated block to all other nodes in the directory.
-        with self.data_out_lock:
-            self.data_out_completed = False
-            my_data = block.serialize()
-            self.data_out = my_data
-            while self.data_out == my_data:
-                time.sleep(.1)
-        return
+        self.broadcast(pickle.dumps({"type": "Block", "val": block.serialize()}))
 
+    def broadcast_chain(self):
+        self.broadcast(pickle.dumps({"type": "Chain", "val": self.serialize_chain()}))
 
-
-        for socket in self.socket_list:
-            socket.send(block.serialize())
-            continue
-    
-            # TODO: handle exception
-            try :
-                print(message)
-                socket.send(message.encode())
-            except Exception as e:
-                # broken socket connection
-                socket.close()
-                # broken socket, remove it
-                if socket in SOCKET_LIST:
-                    SOCKET_LIST.remove(socket)
-                raise(e)
+    def broadcast_request_chain(self):
+        self.broadcast(pickle.dumps({"type": "Request_chain"}))
 
     def broadcast(self, data):
-        """
-        Waits for data_out to be queued by other thread
-        Goal is then to have other nodes on the network know about it.
-        Resets data_out to None when done.
-        """
-        while 1:
-            while self.data_out == None:
-                time.sleep(.1)
-            send_to_sockets = set(self.socket_list)
-            while len(send_to_sockets) > 0:
-                ready_to_read,ready_to_write,in_error = select.select([],list(send_to_sockets),[])
-                for sock in ready_to_write:
-                    socket.send(block.serialize())
+        _,ready_to_write,_ = select.select([],list(self.sockets),[])
+        logging.info("{}: Broadcasting type {} message to {} peers".format(self.whoami, pickle.loads(data)["type"], len(ready_to_write)))
+        for sock in ready_to_write:
+            sock.send(data)
 
     def listen(self):
         """
-        Entire point in life is to get whatever data is to be read 
-        into the data_in field.
-        Then, waits (polling) for other threads to deal with it and
-        reset data_in to None, at which point we can read again.
+        (Always) listen for whatever people tell me and handle appropriately
+        Inline comments.
         """
         while 1:
-            while self.data_in != None:
-                time.sleep(.1)
-            send_to_sockets = set(self.socket_list)
-            while len(send_to_sockets) > 0:
-                ready_to_read,ready_to_write,in_error = select.select([],list(send_to_sockets),[])
-                for sock in ready_to_read:
-                    data = sock.recv(RECV_BUFFER).decode()
-                    if not data :
-                        logging.info('{}: Disconnected from server'.format(self.whoami))
-                    else :
-                        logging.info('{}: Received data: {}'.format(self.whoami, data))
-                        send_to_sockets.remove(sock)
+            logging.info("{}: Listen cycle".format(self.whoami))
+            ready_to_read,_,_ = select.select(list(self.sockets),[],[])
+            for sock in ready_to_read:
+                data = sock.recv(RECV_BUFFER)
+                if not data:
+                    logging.info('{}: Disconnected from server'.format(self.whoami))
+                    self.remove_client_socket(sock)
+                else:
+                    logging.info('{}: Received data'.format(self.whoami))
+                    data = pickle.loads(data)
+                    try:
+                        if data["type"] == "Block":
+                            '''
+                            previously listen_broadcast
+                            
+                            listen for broadcasts of new blocks
+                            
+                            side effect: adds new block to chain if valid
+                            '''
+                            block = Block.deserialize(data["val"])
+                            if len(self.chain) == 0:
+                                if self.validate(block, "No_parent"):
+                                    # Received genesis
+                                    self.add_block(block)
+                                    logging.info("{}: received genesis".format(self.whoami))
+                            elif self.validate(block, chain[-1]):
+                                self.add_block(block)
+                                logging.info("{}: received valid new block", self.whoami)
+                            elif block.index > chain[-1].index + 1:
+                                # Failed to validate it, but we could just be missing tip of trunk
+                                # Consider broadcast_request_chain
+                                logging.info("{}: Seemingly lagging behind longer chains".format(self.whoami))
+                            else:
+                                logging.info("{}: Received bogus block".format(self.whoami))
 
-    
-    '''
-    listen_broadcast
-    
-    listen for broadcasts of new blocks
-    
-    input: None
-    output: None
-    side effect: adds new block to chain if valid
-    '''
-    def listen_broadcast(self):
-        # TODO: Handle newly broadcast prospective block (i.e. add to chain if valid).
-        #       If using HTTP, this should be a route handler.
-        pass
-    
-    '''
-    query_chain
-    
-    query the current status of the chain
-    
-    TODO: Determine input(s) and output(s).
-    '''
-    def query_chain(self):
-        # TODO: Request content of chain from all other nodes (using deserialize class method). Keep the majority/plurality (valid) chain.
-        pass
-    
-    '''
-    listen_query
-    
-    list for requests for current chain status
-    
-    TODO: Determine input(s) and output(s).
-    '''
-    def listen_query(self):
-        # TODO: Respond to query for contents of full chain (using serialize class method).
-        #       If using HTTP, this should be a route handler.
+                        elif data["type"] == "Chain":
+                            '''
+                            previously query_chain
+                            
+                            query the current status of the chain
+                            
+                            side effect: resets our chain to longest valid chain
+                            '''
+                            proposed_bchain = DistributedBlockchain(self.difficulty, "Annonymous")
+                            proposed_bchain.deserialize_chain(data["val"])
+                            if len(self.chain)<len(proposed_bchain.chain) and proposed_bchain.validate_chain():
+                                # Accept new chain
+                                self.chain = proposed_bchain.chain
+
+                        elif data["type"] == "Request_chain":
+                            '''
+                            previously listen_query
+                            
+                            listen for requests for current chain status
+                            '''
+                            self.broadcast_chain()
+                        else:
+                            raise RuntimeError("Bogus reception")
+
+                    except Exception as e:
+                        logging.info("{}: Bogus reception")
+                        if self.DEBUG:
+                            raise e
 
     def serverDispatch(self):
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -542,7 +540,7 @@ if __name__ == '__main__':
     for i, node in enumerate(allNodes):
         bchain.set_node_port(node, PORT_MIN+i)
 
-    # start server per node
+    # Start server for those trying to connect to me
     x = threading.Thread(target=bchain.serverDispatch)
     x.start()
 
@@ -551,7 +549,26 @@ if __name__ == '__main__':
     y.start()
 
     # # Give everyone time to come online
-    # time.sleep(10)
+    time.sleep(10)
+
+    # Efficient listen for peers
+    z = threading.Thread(target=bchain.listen)
+    z.start()
+
+    if bchain.whoami == "generator":
+        # Auto-broadcasts
+        bchain.genesis()
+        print(bchain)
+    elif bchain.whoami == "honest":
+        # while len(bchain.chain) == 0:
+        #     # Let generator go first to be nice
+        #     pass
+        bchain.broadcast_request_chain()
+        time.sleep(5)
+        print(bchain)
+        # Auto-broadcasts
+        # bchain.generate()
+
 
 
 
