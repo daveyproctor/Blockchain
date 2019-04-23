@@ -455,10 +455,10 @@ class DistributedBlockchain(Blockchain):
                                     # Received genesis
                                     self.add_block(block)
                                     logging.info("{}: received genesis".format(self.whoami))
-                            elif self.validate(block, chain[-1]):
+                            elif self.validate(block, self.chain[-1]):
                                 self.add_block(block)
-                                logging.info("{}: received valid new block", self.whoami)
-                            elif block.index > chain[-1].index + 1:
+                                logging.info("{}: received valid new block".format(self.whoami))
+                            elif block.index > self.chain[-1].index + 1:
                                 # Failed to validate it, but we could just be missing tip of trunk
                                 # Consider broadcast_request_chain
                                 logging.info("{}: Seemingly lagging behind longer chains".format(self.whoami))

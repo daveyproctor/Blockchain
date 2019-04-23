@@ -26,18 +26,50 @@ if __name__ == '__main__':
     y = threading.Thread(target=bchain.clientTryConnect)
     y.start()
 
+    BEAT = 5
     # # Give everyone time to come online
-    time.sleep(5)
+    time.sleep(2*BEAT)
 
     # Efficient listen for peers
     z = threading.Thread(target=bchain.listen)
     z.start()
 
+    logging.info("==== a. The generator node mines the genesis block and broadcasts it to the honest and dishonest nodes. ====")
     if bchain.whoami == "generator":
         # Auto-broadcasts
         bchain.genesis()
     elif bchain.whoami == "honest":
         pass
+    elif bchain.whoami == "dishonest":
+        pass
 
-    time.sleep(5)
+    time.sleep(BEAT)
+    assert(len(bchain.chain) == 1)
+    assert(bchain.validate_chain())
     logging.info("{}: Current blockchain: {}".format(bchain.whoami, str(bchain)))
+    time.sleep(BEAT)
+
+    logging.info("==== b. The honest node mines a block and broadcasts it to the generator and dishonest nodes. ====")
+    if bchain.whoami == "generator":
+        pass
+    elif bchain.whoami == "honest":
+        bchain.generate()
+    elif bchain.whoami == "dishonest":
+        pass
+
+    time.sleep(BEAT)
+    assert(len(bchain.chain) == 2)
+    assert(bchain.validate_chain())
+    logging.info("{}: Current blockchain: {}".format(bchain.whoami, str(bchain)))
+    time.sleep(BEAT)
+
+    logging.info("==== The dishonest node ignores it ====")
+    if bchain.whoami == "dishonest":
+        bchain.chain.pop()
+    time.sleep(BEAT)
+    logging.info("{}: Current blockchain: {}".format(bchain.whoami, str(bchain)))
+    time.sleep(BEAT)
+
+
+
+
