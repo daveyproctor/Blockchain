@@ -505,7 +505,7 @@ class DistributedBlockchain(Blockchain):
         server_socket.listen(5)
         while 1:
             # This blocks (hangs) in an efficient way even after all connections made
-            ready_to_read,ready_to_write,in_error = select.select([server_socket],[],[])
+            ready_to_read,_,_ = select.select([server_socket],[],[])
             if server_socket in ready_to_read:
                 # a new connection request recieved
                 s, addr = server_socket.accept()
