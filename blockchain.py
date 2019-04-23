@@ -115,7 +115,7 @@ class Block(object):
     returns String
     '''
     def __str__( self ):
-        return self.hash
+        return "Block {}. Hash:{}".format(self.index, self.hash)
 
 '''
 Blockchain
@@ -207,7 +207,11 @@ class Blockchain(object):
     returns Bool
     '''
     def validate_chain( self ):
-        self.validate(self.chain[0], "No_parent")
+        if len(self.chain) == 0:
+            logging.info("validate_chain called on zero-length chain")
+            return True
+        if self.validate(self.chain[0], "No_parent") == False:
+            return False
         for i, block in enumerate(self.chain[1:]):
             if self.validate(block, self.chain[i]) == False:
                 return False
@@ -327,7 +331,7 @@ class DistributedBlockchain(Blockchain):
         if self.add_block(newBlock) == False:
             logging.error("{}: Networked race condition or weirdness in mining process".format(self.whoami))
             return None
-        logging.info("{}: Generated block".format(self.whoami))
+        logging.info("{}: Generated {}".format(self.whoami, str(newBlock)))
         return newBlock
     
     '''
@@ -348,7 +352,7 @@ class DistributedBlockchain(Blockchain):
         if self.add_block(genesis) == False:
             logging.error("{}: Networked race condition or weirdness in mining process".format(self.whoami))
             return None
-        logging.info("{}: Genesis block".format(self.whoami))
+        logging.info("{}: Genesis {}".format(self.whoami, str(genesis)))
         return genesis
 
     '''
@@ -400,9 +404,11 @@ class DistributedBlockchain(Blockchain):
     '''
     def broadcast_block(self, block):
         self.broadcast(pickle.dumps({"type": "Block", "val": block.serialize()}))
+        logging.info("{}: Broadcast {}".format(self.whoami, str(block)))
 
     def broadcast_chain(self):
         self.broadcast(pickle.dumps({"type": "Chain", "val": self.serialize_chain()}))
+        logging.info("{}: Broadcast blockchain: {}".format(self.whoami, str(self)))
 
     def broadcast_request_chain(self):
         self.broadcast(pickle.dumps({"type": "Request_chain"}))
@@ -419,7 +425,7 @@ class DistributedBlockchain(Blockchain):
         Inline comments.
         """
         while 1:
-            logging.info("{}: Listen cycle".format(self.whoami))
+            logging.info("{}: Start listen cycle".format(self.whoami))
             ready_to_read,_,_ = select.select(list(self.sockets),[],[])
             for sock in ready_to_read:
                 data = sock.recv(RECV_BUFFER)
@@ -466,7 +472,10 @@ class DistributedBlockchain(Blockchain):
                             proposed_bchain.deserialize_chain(data["val"])
                             if len(self.chain)<len(proposed_bchain.chain) and proposed_bchain.validate_chain():
                                 # Accept new chain
+                                logging.info("{}: received longer than current chain {}".format(self.whoami, proposed_bchain.serialize_chain()))
                                 self.chain = proposed_bchain.chain
+                            else:
+                                logging.info("{}: received chain that's not both valid+longer than current; disgarding".format(self.whoami, proposed_bchain.serialize_chain()))
 
                         elif data["type"] == "Request_chain":
                             '''
@@ -482,6 +491,7 @@ class DistributedBlockchain(Blockchain):
                         logging.info("{}: Bogus reception")
                         if self.DEBUG:
                             raise e
+            assert self.validate_chain()
 
     def serverDispatch(self):
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -534,7 +544,7 @@ if __name__ == '__main__':
         print('Usage : python blockchain.py [{}]'.format(" | ".join(allNodes)))
         sys.exit()
 
-    bchain = DistributedBlockchain( difficulty=18, whoami=sys.argv[1] )
+    bchain = DistributedBlockchain( difficulty=16, whoami=sys.argv[1] )
 
     # track who's serving over which ports
     for i, node in enumerate(allNodes):
@@ -558,14 +568,14 @@ if __name__ == '__main__':
     if bchain.whoami == "generator":
         # Auto-broadcasts
         bchain.genesis()
-        print(bchain)
+        # print(bchain)
     elif bchain.whoami == "honest":
         # while len(bchain.chain) == 0:
         #     # Let generator go first to be nice
         #     pass
         bchain.broadcast_request_chain()
-        time.sleep(5)
-        print(bchain)
+        # time.sleep(5)
+        # print(bchain)
         # Auto-broadcasts
         # bchain.generate()
 

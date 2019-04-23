@@ -16,11 +16,14 @@ assert bchain.validate(block1, block0)
 assert bchain.validate(block0, "No_parent")
 assert bchain.validate(block2, block0) == False
 
-assert bchain.add_block(block0)
-assert bchain.add_block(block1)
-assert bchain.add_block(block2)
-
 assert bchain.validate_chain()
+assert bchain.add_block(block0)
+assert bchain.validate_chain()
+assert bchain.add_block(block1)
+assert bchain.validate_chain()
+assert bchain.add_block(block2)
+assert bchain.validate_chain()
+
 
 
 
