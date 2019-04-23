@@ -240,7 +240,7 @@ DistributedBlockchain
 '''
 class DistributedBlockchain(Blockchain):
 
-    def __init__(self, difficulty, whoami):
+    def __init__(self, difficulty, whoami, timeout=1):
         # Inherited class
         Blockchain.__init__(self, difficulty)
 
@@ -257,6 +257,7 @@ class DistributedBlockchain(Blockchain):
         self.sockets = set()
         # track who's serving over which ports
         self.ports = {}
+        self.timeout = timeout
 
         # Concurrency
         self.lock = threading.Lock()
@@ -414,8 +415,12 @@ class DistributedBlockchain(Blockchain):
         self.broadcast(pickle.dumps({"type": "Request_chain"}))
 
     def broadcast(self, data):
-        _,ready_to_write,_ = select.select([],list(self.sockets),[])
-        logging.info("{}: Broadcasting type {} message to {} peers".format(self.whoami, pickle.loads(data)["type"], len(ready_to_write)))
+        dtype = pickle.loads(data)["type"]
+        _,ready_to_write,_ = select.select([],list(self.sockets),[],self.timeout)
+        if len(ready_to_write) == 0:
+            logging.info("{}: No peers online; my_socket_length={}; lost broadcast type {}".format(self.whoami, len(self.sockets), dtype))
+            return
+        logging.info("{}: Broadcasting type {} message to {} peers".format(self.whoami, dtype, len(ready_to_write)))
         for sock in ready_to_write:
             sock.send(data)
 
@@ -426,7 +431,7 @@ class DistributedBlockchain(Blockchain):
         """
         while 1:
             logging.info("{}: Start listen cycle".format(self.whoami))
-            ready_to_read,_,_ = select.select(list(self.sockets),[],[])
+            ready_to_read,_,_ = select.select(list(self.sockets),[],[],self.timeout)
             for sock in ready_to_read:
                 data = sock.recv(RECV_BUFFER)
                 if not data:
@@ -559,7 +564,7 @@ if __name__ == '__main__':
     y.start()
 
     # # Give everyone time to come online
-    time.sleep(10)
+    # time.sleep(10)
 
     # Efficient listen for peers
     z = threading.Thread(target=bchain.listen)
