@@ -8,7 +8,7 @@ import sys, socket, select
 import threading
 
 import logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', level=logging.DEBUG)
 
 
 
@@ -416,6 +416,7 @@ class DistributedBlockchain(Blockchain):
 
     def broadcast(self, data):
         dtype = pickle.loads(data)["type"]
+        logging.info("{}: Start broadcast".format(self.whoami))
         _,ready_to_write,_ = select.select([],list(self.sockets),[]) # self.timeout
         if len(ready_to_write) == 0:
             logging.info("{}: No peers online; my_socket_length={}; lost broadcast type {}".format(self.whoami, len(self.sockets), dtype))
@@ -432,6 +433,7 @@ class DistributedBlockchain(Blockchain):
         while 1:
             logging.info("{}: Start listen cycle".format(self.whoami))
             ready_to_read,_,_ = select.select(list(self.sockets),[],[]) #,self.timeout)
+            logging.info("{}: Fall through select".format(self.whoami))
             for sock in ready_to_read:
                 data = sock.recv(RECV_BUFFER)
                 if not data:
