@@ -501,7 +501,7 @@ class DistributedBlockchain(Blockchain):
     def serverDispatch(self):
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server_socket.bind((HOST, bchain.get_node_port(self.whoami)))
+        server_socket.bind((HOST, self.get_node_port(self.whoami)))
         server_socket.listen(5)
         while 1:
             # This blocks (hangs) in an efficient way even after all connections made
@@ -524,8 +524,8 @@ class DistributedBlockchain(Blockchain):
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(2)
                 try:
-                    s.connect((HOST, bchain.get_node_port(peer)))
-                    bchain.add_client_socket(s)
+                    s.connect((HOST, self.get_node_port(peer)))
+                    self.add_client_socket(s)
                     
                     logging.info("{}: Connected to {}".format(self.whoami, peer))
                     self.add_node("localhost", self.get_node_port(peer))
@@ -543,48 +543,6 @@ RECV_BUFFER = 4096
 PORT_MIN = 8000
 allNodes = ("generator", "honest", "dishonest", "joiner")
 
-if __name__ == '__main__':
-
-    if (len(sys.argv) != 2):
-        print('Usage : python blockchain.py [{}]'.format(" | ".join(allNodes)))
-        sys.exit()
-
-    bchain = DistributedBlockchain( difficulty=16, whoami=sys.argv[1] )
-
-    # track who's serving over which ports
-    for i, node in enumerate(allNodes):
-        bchain.set_node_port(node, PORT_MIN+i)
-
-    # Start server for those trying to connect to me
-    x = threading.Thread(target=bchain.serverDispatch)
-    x.start()
-
-    # Try connect to peers
-    y = threading.Thread(target=bchain.clientTryConnect)
-    y.start()
-
-    # # Give everyone time to come online
-    time.sleep(5)
-
-    # Efficient listen for peers
-    z = threading.Thread(target=bchain.listen)
-    z.start()
-
-    if bchain.whoami == "generator":
-        # Auto-broadcasts
-        bchain.genesis()
-        # print(bchain)
-    elif bchain.whoami == "honest":
-        pass
-        # while len(bchain.chain) == 0:
-        #     # Let generator go first to be nice
-        #     pass
-        # bchain.broadcast_request_chain()
-        # Auto-broadcasts
-        # bchain.generate()
-
-    time.sleep(5)
-    logging.info("Blockchain: {}".format(str(bchain)))
 
 
 
