@@ -475,9 +475,9 @@ class DistributedBlockchain(Blockchain):
                             '''
                             proposed_bchain = DistributedBlockchain(self.difficulty, "Annonymous")
                             proposed_bchain.deserialize_chain(data["val"])
-                            if len(self.chain)<len(proposed_bchain.chain) and proposed_bchain.validate_chain():
+                            if self.whoami != "dishonest" and len(self.chain)<len(proposed_bchain.chain) and proposed_bchain.validate_chain():
                                 # Accept new chain
-                                logging.info("{}: received longer than current chain {}".format(self.whoami, proposed_bchain.serialize_chain()))
+                                logging.info("{}: received longer than current chain".format(self.whoami))
                                 self.chain = proposed_bchain.chain
                             else:
                                 logging.info("{}: received chain that's not both valid+longer than current; disgarding".format(self.whoami, proposed_bchain.serialize_chain()))
