@@ -416,7 +416,7 @@ class DistributedBlockchain(Blockchain):
 
     def broadcast(self, data):
         dtype = pickle.loads(data)["type"]
-        _,ready_to_write,_ = select.select([],list(self.sockets),[],self.timeout)
+        _,ready_to_write,_ = select.select([],list(self.sockets),[]) # self.timeout
         if len(ready_to_write) == 0:
             logging.info("{}: No peers online; my_socket_length={}; lost broadcast type {}".format(self.whoami, len(self.sockets), dtype))
             return
@@ -431,7 +431,7 @@ class DistributedBlockchain(Blockchain):
         """
         while 1:
             logging.info("{}: Start listen cycle".format(self.whoami))
-            ready_to_read,_,_ = select.select(list(self.sockets),[],[],self.timeout)
+            ready_to_read,_,_ = select.select(list(self.sockets),[],[]) #,self.timeout)
             for sock in ready_to_read:
                 data = sock.recv(RECV_BUFFER)
                 if not data:
@@ -564,7 +564,7 @@ if __name__ == '__main__':
     y.start()
 
     # # Give everyone time to come online
-    # time.sleep(10)
+    time.sleep(5)
 
     # Efficient listen for peers
     z = threading.Thread(target=bchain.listen)
@@ -575,15 +575,16 @@ if __name__ == '__main__':
         bchain.genesis()
         # print(bchain)
     elif bchain.whoami == "honest":
+        pass
         # while len(bchain.chain) == 0:
         #     # Let generator go first to be nice
         #     pass
-        bchain.broadcast_request_chain()
-        # time.sleep(5)
-        # print(bchain)
+        # bchain.broadcast_request_chain()
         # Auto-broadcasts
         # bchain.generate()
 
+    time.sleep(5)
+    logging.info("Blockchain: {}".format(str(bchain)))
 
 
 
