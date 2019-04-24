@@ -20,7 +20,7 @@ Davey Proctor
 
     $ python3 integration_test_gen_hon_dis_join.py [generator | honest | dishonest | joiner]
 
-    * Note: the joiner is technically in the network all the time for simplicty; to simulate them joining from scratch; we have them set their chain to the empty set before requesting a new chain from everyone. This decision was made because it is easier to not have to connect more client sockets after some initial period, although my implementation with an ever-listening server makes this possible
+    * Note: the joiner is technically in the network all the time for simplicty; to simulate them joining from scratch, we have them set their chain to the empty set before requesting a new chain from everyone. This decision was made because it is easier to not have to connect more client sockets after some initial period, although my implementation with an ever-listening server makes this possible.
 
 * I also present a fuller three-node mining interaction. Start at the same time, and see these nodes mine an arbitrary number of blocks.
 
