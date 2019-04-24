@@ -12,7 +12,7 @@ if __name__ == '__main__':
         print('Usage : python blockchain.py [{}]'.format(" | ".join(blockchain.allNodes)))
         sys.exit()
 
-    bchain = blockchain.DistributedBlockchain( difficulty=16, whoami=sys.argv[1] )
+    bchain = blockchain.DistributedBlockchain( difficulty=19, whoami=sys.argv[1], debug=False)
 
     # track who's serving over which ports
     for i, node in enumerate(blockchain.allNodes):
@@ -36,10 +36,15 @@ if __name__ == '__main__':
     time.sleep(2)
 
     if bchain.whoami == "generator":
-        bchain.genesis()
+        bchain._genesis()
 
+    # Generator needs time to find generator block else all bets are off
+    time.sleep(10)
+
+    if bchain.whoami != "generator":
+        bchain.broadcast_request_chain()
     time.sleep(2)
 
-    g = threading.Thread(target=bchain.generate)
+    g = threading.Thread(target=bchain.mine)
     g.start()
 

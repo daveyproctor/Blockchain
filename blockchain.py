@@ -172,6 +172,7 @@ class Blockchain(object):
     returns Bool
     '''
     def validate( self, block, parent ):
+        # logging.info("{}: Validating blocks {} parent {}".format(self.whoami, str(block), str(parent)))
         #   2.,3. Valid hash
         if block.hashed == False:
             return False
@@ -240,12 +241,12 @@ DistributedBlockchain
 '''
 class DistributedBlockchain(Blockchain):
 
-    def __init__(self, difficulty, whoami, timeout=1):
+    def __init__(self, difficulty, whoami, timeout=1, debug=True):
         # Inherited class
         Blockchain.__init__(self, difficulty)
 
         # If true, don't supress exceptions
-        self.DEBUG = True
+        self.DEBUG = debug
 
         # Network information
         self.whoami = whoami
@@ -302,7 +303,10 @@ class DistributedBlockchain(Blockchain):
     '''
     def _generate(self, numSteps=100):
         if len(self.chain) == 0:
-            raise RuntimeError("Call genesis for the first block")
+            # raise RuntimeError("Call genesis for the first block")
+            logging.debug("Call genesis for the first block. Hope you're receiving genesis")
+            time.sleep(3)
+            # return
             
         newBlock = None
         while newBlock is None:
@@ -361,6 +365,10 @@ class DistributedBlockchain(Blockchain):
     '''
     def generate(self):
         self.broadcast_block(self._generate())
+
+    def mine(self):
+        while 1:
+            self.generate()
 
     '''
     _genesis and also broadcast
@@ -423,7 +431,11 @@ class DistributedBlockchain(Blockchain):
             return
         logging.info("{}: Broadcasting type {} message to {} peers".format(self.whoami, dtype, len(ready_to_write)))
         for sock in ready_to_write:
-            sock.send(data)
+            try:
+                sock.send(data)
+            except BrokenPipeError:
+                logging.info("{}: Disconnect".format(self.whoami))
+                self.sockets.remove(sock)
 
     def listen(self):
         """
@@ -433,7 +445,6 @@ class DistributedBlockchain(Blockchain):
         while 1:
             logging.info("{}: Start listen cycle".format(self.whoami))
             ready_to_read,_,_ = select.select(list(self.sockets),[],[]) #,self.timeout)
-            logging.info("{}: Fall through select".format(self.whoami))
             for sock in ready_to_read:
                 data = sock.recv(RECV_BUFFER)
                 if not data:
@@ -441,8 +452,8 @@ class DistributedBlockchain(Blockchain):
                     self.remove_client_socket(sock)
                 else:
                     logging.info('{}: Received data'.format(self.whoami))
-                    data = pickle.loads(data)
                     try:
+                        data = pickle.loads(data)
                         if data["type"] == "Block":
                             '''
                             previously listen_broadcast
@@ -453,6 +464,10 @@ class DistributedBlockchain(Blockchain):
                             '''
                             block = Block.deserialize(data["val"])
                             if len(self.chain) == 0:
+                                if block.index != 0:
+                                    # Coming in, getting traffic not genesis
+                                    logging.info("{}: received non-genesis".format(self.whoami))
+                                    break
                                 if self.validate(block, "No_parent"):
                                     # Received genesis
                                     self.add_block(block)
@@ -464,6 +479,7 @@ class DistributedBlockchain(Blockchain):
                                 # Failed to validate it, but we could just be missing tip of trunk
                                 # Consider broadcast_request_chain
                                 logging.info("{}: Seemingly lagging behind longer chains".format(self.whoami))
+                                self.broadcast_request_chain()
                             else:
                                 logging.info("{}: Received bogus block".format(self.whoami))
 
