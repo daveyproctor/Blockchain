@@ -73,6 +73,7 @@ class Block(object):
 
         header = str(self.index) + str(self.parent_hash) + str(self.data)
 
+        # Note: due to the uniform distribution of lottery tickets, using a random start is pointless; it's best to increment by one in an exhastive search. 
         for nonce in range(startSearch, max_nonce):
             self.timestamp = time.time()
             hash_result = hashlib.sha256((str(header)+str(self.timestamp)+str(nonce)).encode()).hexdigest()
@@ -305,6 +306,7 @@ class DistributedBlockchain(Blockchain):
         if len(self.chain) == 0:
             # raise RuntimeError("Call genesis for the first block")
             logging.debug("Call genesis for the first block. Hope you're receiving genesis")
+            self.broadcast_request_chain()
             time.sleep(3)
             # return
             
