@@ -74,6 +74,7 @@ class Block(object):
         header = str(self.index) + str(self.parent_hash) + str(self.data)
 
         # Note: due to the uniform distribution of lottery tickets, using a random start is pointless; it's best to increment by one in an exhastive search. 
+        # This assumes self.data is unique for different competing nodes (imagine someone searching for a transaction by them)
         for nonce in range(startSearch, max_nonce):
             self.timestamp = time.time()
             hash_result = hashlib.sha256((str(header)+str(self.timestamp)+str(nonce)).encode()).hexdigest()
