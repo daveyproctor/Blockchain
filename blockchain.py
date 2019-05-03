@@ -9,6 +9,8 @@ import threading
 
 import logging
 logging.basicConfig(format='%(asctime)s:%(levelname)s:%(message)s', level=logging.DEBUG)
+# logger = logging.getLogger()
+# logger.disable = True
 
 
 
@@ -316,7 +318,7 @@ class DistributedBlockchain(Blockchain):
             with self.lock:
                 parentBlock = self.chain[-1]
             index = parentBlock.index+1
-            data = "Data for block {}".format(index)
+            data = "Data for block {}".format(index) # found by {}".format(index, self.whoami) # to make unique to me
             newBlock = Block(index, parentBlock.hash, data)
             for startSearch in range(0, newBlock.max_nonce, numSteps):
                 block_hash = newBlock.search_hash(self.difficulty, startSearch, numSteps)
@@ -339,7 +341,7 @@ class DistributedBlockchain(Blockchain):
         if self.add_block(newBlock) == False:
             logging.error("{}: Networked race condition or weirdness in mining process".format(self.whoami))
             return None
-        logging.info("{}: Generated {}".format(self.whoami, str(newBlock)))
+        print("{}: Generated {}".format(self.whoami, str(newBlock)))
         return newBlock
     
     '''
@@ -360,7 +362,7 @@ class DistributedBlockchain(Blockchain):
         if self.add_block(genesis) == False:
             logging.error("{}: Networked race condition or weirdness in mining process".format(self.whoami))
             return None
-        logging.info("{}: Genesis {}".format(self.whoami, str(genesis)))
+        print("{}: Genesis {}".format(self.whoami, str(genesis)))
         return genesis
 
     '''
@@ -474,10 +476,10 @@ class DistributedBlockchain(Blockchain):
                                 if self.validate(block, "No_parent"):
                                     # Received genesis
                                     self.add_block(block)
-                                    logging.info("{}: received genesis".format(self.whoami))
+                                    logging.info("{}: Received genesis".format(self.whoami))
                             elif self.validate(block, self.chain[-1]):
                                 self.add_block(block)
-                                logging.info("{}: received valid new block".format(self.whoami))
+                                logging.info("{}: Received valid new block".format(self.whoami))
                             elif block.index > self.chain[-1].index + 1:
                                 # Failed to validate it, but we could just be missing tip of trunk
                                 # Consider broadcast_request_chain
